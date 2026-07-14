@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>D.md — DESIGN.md Editor</title>
+  <!-- Google Fonts: Outfit for UI, Fira Code for code editor -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <!-- Dynamic style block that will be populated with CSS custom properties from YAML tokens -->
+  <style id="dynamic-tokens-style"></style>
+</head>
+<body>
+  <!-- App Shell -->
+  <div class="app-shell">
+
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-container">
+          <i data-lucide="layers" class="logo-icon"></i>
+          <h1>D.md <span class="logo-badge">DESIGN.md Editor</span></h1>
+        </div>
+        <span class="file-status-indicator" id="file-status">新規ドキュメント (未保存)</span>
+        <span class="autosave-indicator hidden" id="autosave-indicator"></span>
+        <button id="btn-reconnect-folder" class="btn btn-sm btn-text hidden" title="前回接続していたフォルダに再接続します">
+          <i data-lucide="folder-sync"></i>
+          <span>前回のフォルダに再接続</span>
+        </button>
+      </div>
+
+      <div class="header-actions">
+        <div class="popover-anchor">
+          <button id="btn-connect-folder" class="btn btn-sm btn-secondary" title="index.htmlとdesignフォルダが入っているプロジェクトルートを接続します">
+            <i data-lucide="folder-cog"></i>
+            <span id="btn-connect-folder-label">フォルダを接続</span>
+          </button>
+          <div id="popover-folder-menu" class="file-popover hidden">
+            <button id="btn-disconnect-folder" class="file-popover-item">
+              <i data-lucide="folder-x"></i><span>接続解除</span>
+            </button>
+            <div class="file-popover-divider"></div>
+            <label class="file-popover-item autosave-toggle-row" title="変更を1秒後に自動でフォルダへ保存します">
+              <input type="checkbox" id="autosave-toggle" checked>
+              <span>自動保存 (フォルダ接続時)</span>
+            </label>
+          </div>
+        </div>
+        <div class="popover-anchor">
+          <button id="btn-open-file" class="btn btn-sm btn-secondary" title="作業フォルダ内のDESIGN.mdを選ぶと、同じフォルダのPREVIEW.mdも開きます">
+            <i data-lucide="folder-open"></i>
+            <span>DESIGN.mdを開く</span>
+          </button>
+          <div id="popover-open-design" class="file-popover hidden"></div>
+        </div>
+        <button id="btn-save-file" class="btn btn-sm btn-primary hidden" title="ローカルファイルに上書き保存 (File System API対応ブラウザのみ)">
+          <i data-lucide="save"></i>
+          <span>上書き保存</span>
+        </button>
+        <button id="btn-save-as-file" class="btn btn-sm btn-secondary" title="新しい作業フォルダを作り、DESIGN.mdとPREVIEW.mdをセットで保存します">
+          <i data-lucide="save-all"></i>
+          <span>別名で保存</span>
+        </button>
+        <button id="btn-download" class="btn btn-sm btn-secondary" title="DESIGN.mdファイルとしてダウンロード">
+          <i data-lucide="download"></i>
+        </button>
+        <button id="btn-open-export" class="btn btn-sm btn-secondary" title="各種形式でエクスポート">
+          <i data-lucide="code"></i>
+          <span>エクスポート</span>
+        </button>
+        <div class="divider"></div>
+        <button id="btn-toggle-theme" class="btn-icon" title="エディタのダーク/ライトテーマ切り替え">
+          <i data-lucide="sun"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="app-workspace">
+
+      <!-- 1. Left Sidebar: Token Visual Editor -->
+      <aside class="workspace-sidebar">
+        <nav class="sidebar-tabs">
+          <button class="sidebar-tab active" data-target="tab-tokens">
+            <i data-lucide="sliders"></i>
+            <span>トークン編集</span>
+          </button>
+          <button class="sidebar-tab" data-target="tab-metadata">
+            <i data-lucide="info"></i>
+            <span>メタデータ</span>
+          </button>
+          <button class="sidebar-tab" data-target="tab-templates">
+            <i data-lucide="layout-template"></i>
+            <span>テンプレート</span>
+          </button>
+          <button class="sidebar-tab" data-target="tab-ai-assist">
+            <i data-lucide="sparkles"></i>
+            <span>AIアシスト</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-content">
+          <!-- Tokens Tab Panel -->
+          <div id="tab-tokens" class="tab-panel active">
+            <div class="token-categories-accordion" id="tokens-accordion">
+              <!-- Content will be dynamically populated by JS from YAML tokens -->
+              <div class="accordion-loading">
+                <div class="spinner"></div>
+                <p>YAMLをパース中...</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- AI Assistant Tab Panel -->
+          <div id="tab-ai-assist" class="tab-panel">
+            <div class="ai-assistant-panel">
+              <h3>AIアシスト</h3>
+              <div class="assistant-section">
+                <h4><i data-lucide="folder-code"></i><span>ローカルAIと共創する</span></h4>
+                <p class="section-desc">Codex、Claude Code、Antigravityなどでこのプロジェクトフォルダを開き、ローカルサーバーを起動すると、AIと対話しながらDESIGN.mdを編集することができます。</p>
+                <p class="section-desc">以下のような方法で、DESIGN.mdを作成していくことができます。</p>
+                <ul class="section-desc assistant-guide-list">
+                  <li>AIに雰囲気を伝えてDESIGN.mdを生成してもらい、対話的に修正していく。</li>
+                  <li>自分で作成したDESIGN.mdをAIとともにブラッシュアップしていく。</li>
+                  <li>テンプレートから作成する。</li>
+                  <li>既存のサイトやデザインをAIに伝えて、DESIGN.mdを生成してもらう。</li>
+                </ul>
+                <p class="section-desc">ページ上部の「フォルダを接続」からプロジェクトフォルダを接続すると、自分で編集した結果やAIが編集した変更は即座に共有され、プレビューに表示されます。新規に作成する場合は、まず別名で保存してから作業するとよいでしょう。</p>
+                <p class="section-desc">テンプレートから作成する場合は、自動的に複製されて新しいDESIGN.mdが生成されます。ファイル名を変更したい場合は、別名で保存してください。</p>
+                <p class="section-desc">DESIGN.mdと同じフォルダで管理されているPREVIEW.mdは、プレビューの表示方法を管理しています。PREVIEW.mdタブで独自の記法を使って編集できます。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Metadata Tab Panel -->
+          <div id="tab-metadata" class="tab-panel">
+            <div class="metadata-form">
+              <h3>ドキュメント情報</h3>
+              <div class="form-group">
+                <label for="meta-title">title</label>
+                <input type="text" id="meta-title" placeholder="例: Stripe Design System">
+              </div>
+              <div class="form-group">
+                <label for="meta-version">version</label>
+                <input type="text" id="meta-version" placeholder="例: 1.0.0">
+              </div>
+              <div class="form-group">
+                <label for="meta-author">author</label>
+                <input type="text" id="meta-author" placeholder="例: Design Team">
+              </div>
+              <div class="form-group">
+                <label for="meta-description">description</label>
+                <textarea id="meta-description" rows="10" placeholder="デザインシステムの目的や概要を簡潔に入力します..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <!-- Templates Tab Panel -->
+          <div id="tab-templates" class="tab-panel">
+            <div class="templates-list">
+              <h3>システムテンプレート</h3>
+              <p class="templates-intro">design/templates内のテンプレートを開きます。テンプレート自体は変更せず、最初の編集時にDESIGN.mdとPREVIEW.mdを含む番号付き作業フォルダを作成します。</p>
+              <div id="templates-container"><p class="templates-intro">テンプレートを読み込んでいます…</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="sidebar-credit">D.md by <a href="https://yoshihiko.com" target="_blank" rel="noopener">yoshihiko.com</a></div>
+      </aside>
+
+      <!-- 2. Center Panel: Preview Canvas (page-like sample rendered in theme colors) -->
+      <section class="workspace-canvas">
+        <header class="canvas-header">
+          <div class="canvas-title-container">
+            <i data-lucide="monitor"></i>
+            <h2>プレビュー</h2>
+            <div class="preview-theme-switcher">
+              <i data-lucide="moon"></i>
+              <select id="preview-theme-select" title="プレビューするテーマを切り替え">
+                <option value="">既定</option>
+              </select>
+            </div>
+            <button id="btn-toggle-preview-help" class="btn btn-sm btn-text" type="button" title="PREVIEW.mdの記法ヘルプを表示">
+              <i data-lucide="circle-help"></i>
+              <span>preview.help</span>
+            </button>
+          </div>
+          <div class="canvas-actions">
+            <button id="btn-toggle-code-panel" class="btn btn-sm btn-text hidden" title="コードパネルの表示/非表示">
+              <i data-lucide="panel-right"></i>
+              <span>コードパネル</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="canvas-scroll">
+          <div class="canvas-page" id="canvas-stage">
+            <article class="article-sample-wrapper" id="article-sample-content">
+              <!-- Dynamically rendered from PREVIEW.md via marked + shortcodes -->
+            </article>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Right Panel: Code Panel (collapsible) -->
+      <section class="workspace-code" id="workspace-code-panel">
+        <header class="code-panel-header">
+          <nav class="code-panel-tabs">
+            <button class="code-panel-tab active" data-target="code-tab-source">
+              <i data-lucide="file-text"></i>
+              <span>DESIGN.md</span>
+            </button>
+            <button class="code-panel-tab" data-target="code-tab-preview">
+              <i data-lucide="newspaper"></i>
+              <span>PREVIEW.md</span>
+            </button>
+          </nav>
+          <div class="code-panel-actions">
+            <button id="btn-copy-code" class="btn btn-sm btn-text" title="クリップボードにコピー">
+              <i data-lucide="copy"></i>
+            </button>
+            <button id="btn-format-yaml" class="btn btn-sm btn-text" title="YAMLのインデント等を整形">
+              <i data-lucide="align-left"></i>
+            </button>
+            <button id="btn-collapse-code-panel" class="btn-icon btn-collapse-code" title="コードパネルを折りたたむ">
+              <i data-lucide="chevrons-right"></i>
+            </button>
+          </div>
+        </header>
+
+        <div class="code-panel-body">
+          <!-- Source Tab -->
+          <div id="code-tab-source" class="tab-panel active">
+            <div class="editor-body">
+              <div class="editor-line-numbers" id="line-numbers"></div>
+              <textarea id="code-textarea" spellcheck="false" autocomplete="off" placeholder="ここにDESIGN.mdのマークダウンをロードするか、直接記述してください..."></textarea>
+            </div>
+          </div>
+
+          <!-- PREVIEW.md editing tab -->
+          <div id="code-tab-preview" class="tab-panel">
+            <textarea id="preview-textarea" class="preview-textarea" spellcheck="false" autocomplete="off" placeholder="プレビュー用Markdownをここに入力..."></textarea>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Export Modal -->
+  <div id="export-modal" class="modal-overlay hidden">
+    <div class="modal-dialog">
+      <header class="modal-header">
+        <h3><i data-lucide="code"></i><span>テーマのエクスポート</span></h3>
+        <button id="btn-close-export" class="btn-icon" title="閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="modal-body">
+        <div class="export-container">
+          <p class="export-intro">現在のデザイントークンを、各種ツールやフレームワークで利用可能な形式に変換します。</p>
+
+          <div class="export-tabs-sub">
+            <button class="export-tab-sub active" data-format="tailwind">Tailwind CSS</button>
+            <button class="export-tab-sub" data-format="cssvars">CSS Variables</button>
+            <button class="export-tab-sub" data-format="compcss">コンポーネントCSS</button>
+            <button class="export-tab-sub" data-format="tokensjson" title="DTCG 2025.10形式">Design Tokens JSON</button>
+            <button class="export-tab-sub" data-format="previewhtml">プレビューHTML</button>
+          </div>
+          <p id="export-format-description" class="export-format-description">Tailwind CSS v4の@theme形式でトークンを書き出します。</p>
+
+          <div class="export-code-wrapper">
+            <div class="export-code-actions">
+              <button id="btn-download-export" class="btn btn-sm btn-text btn-download-export" title="現在の形式をファイルとしてダウンロード">
+                <i data-lucide="download"></i>
+                <span>ダウンロード</span>
+              </button>
+              <button id="btn-copy-export" class="btn btn-sm btn-text btn-copy-export">
+                <i data-lucide="copy"></i>
+                <span>コードをコピー</span>
+              </button>
+            </div>
+            <pre><code id="export-code-block" class="language-js"></code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="toast hidden">
+    <i data-lucide="check-circle" class="toast-icon"></i>
+    <span id="toast-message">メッセージ</span>
+  </div>
+
+  <!-- External CDNs for Markdown, YAML Parsing, and Icons -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Application Main Logic -->
+  <script src="app.js"></script>
+</body>
+</html>

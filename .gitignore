@@ -1,0 +1,21 @@
+# ユーザーデータ（デザイン作業の成果物）はコミット対象外
+DESIGN.md
+PREVIEW.md
+!defaults/PREVIEW.md
+design/*
+info/
+history/
+pub/
+test/
+.dmd/
+.claude/settings.local.json
+
+# 依存関係・OSファイル
+node_modules/
+.DS_Store
+
+# ただしテンプレート置き場の説明ファイルはコミット対象に含める
+!design/readme.txt
+!design/templates/
+!design/templates/**
+**/.DS_Store
