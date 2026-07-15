@@ -13,6 +13,15 @@
   <style id="dynamic-tokens-style"></style>
 </head>
 <body>
+  <script>
+    try {
+      if (localStorage.getItem('design_md_editor_theme') === 'light') {
+        document.body.classList.add('light-theme');
+      }
+    } catch (err) {
+      // Continue with the default dark theme when storage is unavailable.
+    }
+  </script>
   <!-- App Shell -->
   <div class="app-shell">
 

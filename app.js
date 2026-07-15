@@ -61,6 +61,30 @@ let previewSaveDebounceTimer = null;
 
 // プレビューテーマ選択の永続化キー（YAMLには保存しない、表示専用の選択状態）
 const PREVIEW_THEME_STORAGE_KEY = 'design_md_preview_theme';
+const EDITOR_THEME_STORAGE_KEY = 'design_md_editor_theme';
+
+function applyEditorTheme(theme) {
+  const normalized = theme === 'light' ? 'light' : 'dark';
+  state.editorTheme = normalized;
+  document.body.classList.toggle('light-theme', normalized === 'light');
+
+  const button = document.getElementById('btn-toggle-theme');
+  if (button) {
+    button.innerHTML = normalized === 'light'
+      ? '<i data-lucide="moon"></i>'
+      : '<i data-lucide="sun"></i>';
+  }
+}
+
+function restoreEditorTheme() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem(EDITOR_THEME_STORAGE_KEY);
+  } catch (err) {
+    // localStorage may be unavailable; retain the default dark theme.
+  }
+  applyEditorTheme(saved === 'light' || saved === 'dark' ? saved : 'dark');
+}
 
 const STANDARD_COLOR_DEFAULTS = {
   background: '#ffffff',
@@ -5859,6 +5883,7 @@ function setupFilePopovers() {
 // 15. Initializer & Event Listeners setup
 // ============================================================================
 function init() {
+  restoreEditorTheme();
   lucide.createIcons();
 
   const textarea = document.getElementById('code-textarea');
@@ -6031,16 +6056,16 @@ function init() {
   // Theme Toggle (Light / Dark)
   const themeBtn = document.getElementById('btn-toggle-theme');
   themeBtn.addEventListener('click', () => {
-    document.body.classList.toggle('light-theme');
-    const isLight = document.body.classList.contains('light-theme');
-    state.editorTheme = isLight ? 'light' : 'dark';
-
-    themeBtn.innerHTML = isLight ?
-      '<i data-lucide="moon"></i>' :
-      '<i data-lucide="sun"></i>';
+    const nextTheme = state.editorTheme === 'light' ? 'dark' : 'light';
+    applyEditorTheme(nextTheme);
+    try {
+      localStorage.setItem(EDITOR_THEME_STORAGE_KEY, nextTheme);
+    } catch (err) {
+      // localStorage unavailable — retain the theme for this session.
+    }
 
     lucide.createIcons();
-    showToast(`${isLight ? 'ライト' : 'ダーク'}テーマに切り替えました`);
+    showToast(`${nextTheme === 'light' ? 'ライト' : 'ダーク'}テーマに切り替えました`);
   });
 
   // Drag and Drop files
