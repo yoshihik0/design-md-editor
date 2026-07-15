@@ -191,7 +191,6 @@ async function applyDefaultPreview() {
   if (textarea) textarea.value = text;
   renderArticleSample(state.parsedYaml);
   schedulePreviewSave();
-  updateSaveActionUi();
 }
 
 async function importExternalDesignText(text, sourceName) {
@@ -219,7 +218,6 @@ async function importExternalDesignText(text, sourceName) {
   history.replaceState(null, '', url);
   document.getElementById('file-status').textContent = `${state.externalImportSourceName} (外部ファイル・別名保存してください)`;
   setAutoSaveIndicator('', false);
-  updateSaveActionUi();
   showToast('外部のDESIGN.mdを標準プレビューで開きました。元ファイルは変更されません');
 }
 
@@ -1394,7 +1392,6 @@ async function loadTemplate(template) {
     syncCodeToVisualForm(true);
     renderArticleSample(state.parsedYaml);
     state.templateArmed = true;
-    updateSaveActionUi();
     showToast(`テンプレート「${template.name || template.id}」を開きました`);
   } catch (err) {
     console.error('テンプレート読み込み失敗:', err);
@@ -4826,7 +4823,6 @@ async function detectServerWorkspace() {
     const data = await response.json();
     state.serverWorkspaceName = data.name || 'project';
     updateFolderConnectUi();
-    updateSaveActionUi();
     return true;
   } catch (err) {
     state.serverWorkspaceName = null;
@@ -4845,11 +4841,6 @@ function setAutoSaveIndicator(text, pending) {
   el.classList.remove('hidden');
   el.classList.toggle('autosave-pending', !!pending);
   el.innerHTML = `<span class="autosave-dot">●</span><span>${escapeHtml(text)}</span>`;
-}
-
-function updateSaveActionUi() {
-  const saveBtn = document.getElementById('btn-save-file');
-  if (saveBtn) saveBtn.classList.toggle('hidden', canAutoSaveDesign() || !!state.externalImportSourceName);
 }
 
 function formatTimeHHMMSS(d) {
@@ -5005,7 +4996,6 @@ async function connectFolder(handle) {
   state.directoryHandle = handle;
   state.directoryName = handle.name;
   updateFolderConnectUi();
-  updateSaveActionUi();
   await idbSaveDirectoryHandle(handle);
   await resolveInitialFilesFromDirectory();
 }
@@ -5015,7 +5005,6 @@ async function disconnectFolder() {
   state.directoryName = null;
   await idbClearDirectoryHandle();
   updateFolderConnectUi();
-  updateSaveActionUi();
   setAutoSaveIndicator('', false);
   showToast('フォルダの接続を解除しました');
 }
@@ -5049,7 +5038,6 @@ async function tryRestoreDirectoryHandleOnStartup() {
       state.directoryHandle = handle;
       state.directoryName = handle.name;
       updateFolderConnectUi();
-      updateSaveActionUi();
       await resolveInitialFilesFromDirectory();
       showToast(`フォルダ「${handle.name}」に再接続しました`);
     } else if (perm === 'prompt') {
@@ -5064,7 +5052,6 @@ async function tryRestoreDirectoryHandleOnStartup() {
               state.directoryHandle = handle;
               state.directoryName = handle.name;
               updateFolderConnectUi();
-              updateSaveActionUi();
               await resolveInitialFilesFromDirectory();
               showToast(`フォルダ「${handle.name}」に再接続しました`);
             } else {
@@ -5108,7 +5095,6 @@ async function resolveInitialFilesFromDirectory() {
         document.getElementById('code-textarea').value = text;
         document.getElementById('file-status').textContent = `${mdPath} (フォルダ接続)`;
         syncCodeToVisualForm(true);
-        updateSaveActionUi();
         break;
       }
     } catch (err) {
@@ -5134,7 +5120,6 @@ async function resolveInitialFilesFromDirectory() {
         const sTextarea = document.getElementById('preview-textarea');
         if (sTextarea) sTextarea.value = text;
         renderArticleSample(state.parsedYaml);
-        updateSaveActionUi();
         break;
       }
     } catch (err) {
@@ -5161,7 +5146,6 @@ async function loadDesignFileFromDirectory(relPath) {
     document.getElementById('code-textarea').value = text;
     document.getElementById('file-status').textContent = `${relPath} (フォルダ接続)`;
     syncCodeToVisualForm(true);
-    updateSaveActionUi();
 
     const url = new URL(window.location.href);
     url.searchParams.set('md', relPath);
@@ -5189,7 +5173,6 @@ async function loadPreviewFileFromDirectory(relPath, options = {}) {
     const sTextarea = document.getElementById('preview-textarea');
     if (sTextarea) sTextarea.value = text;
     renderArticleSample(state.parsedYaml);
-    updateSaveActionUi();
 
     const url = new URL(window.location.href);
     url.searchParams.set('preview', relPath);
@@ -5255,7 +5238,6 @@ function setupFolderConnectUi() {
         // localStorage unavailable — ignore
       }
       if (!autoSaveEnabled) setAutoSaveIndicator('', false);
-      updateSaveActionUi();
       showToast(autoSaveEnabled ? '自動保存をONにしました' : '自動保存をOFFにしました');
     });
   }
@@ -5425,7 +5407,6 @@ async function instantiateTemplatePair() {
     url.searchParams.set('preview', result.preview);
     history.replaceState(null, '', url);
     await writeCurrentWorkspaceInfo();
-    updateSaveActionUi();
     showToast(`${result.folder} を作成し、編集対象を切り替えました`);
     return true;
   })().catch(err => {
@@ -5435,89 +5416,6 @@ async function instantiateTemplatePair() {
     return false;
   }).finally(() => { state.templateInstantiationPromise = null; });
   return state.templateInstantiationPromise;
-}
-
-async function saveLocalFile() {
-  const content = document.getElementById('code-textarea').value;
-
-  if (state.externalImportSourceName) {
-    await saveDesignAs();
-    return;
-  }
-
-  if (state.templateSaveBaseName && state.directoryHandle) {
-    try {
-      await saveTemplateInstanceToDesignFolder(content);
-    } catch (err) {
-      console.error('テンプレート保存失敗:', err);
-      showToast('テンプレートからの保存に失敗しました', 'error');
-    }
-    return;
-  }
-
-  // URL読み込みモード: 同梱サーバ (server.mjs) への PUT で直接書き戻す
-  if (!state.fileHandle && state.urlMdPath) {
-    try {
-      urlMdSuppressUntil = Date.now() + 2500;
-      await putFileToServer(state.urlMdPath, content);
-      urlMdLastText = content; // 自分の保存を「外部変更」として拾わないように
-      urlMdSuppressUntil = Date.now() + 2500;
-      showToast(`${state.urlMdPath} に保存しました`);
-    } catch (err) {
-      console.error('サーバ保存失敗:', err);
-      showToast('保存できていません。node server.mjs で起動しているか確認してください（npx serve は保存非対応）', 'error');
-    }
-    return;
-  }
-
-  if (state.fileHandle) {
-    try {
-      if (autoSaveDesignTimer) { clearTimeout(autoSaveDesignTimer); autoSaveDesignTimer = null; }
-      const writable = await state.fileHandle.createWritable();
-      await writable.write(content);
-      await writable.close();
-
-      const file = await state.fileHandle.getFile();
-      lastFileModifiedTime = file.lastModified;
-      if (canAutoSaveDesign()) setAutoSaveIndicator(`自動保存: ${formatTimeHHMMSS(new Date())}`, false);
-      updateSaveActionUi();
-      showToast('ファイルを上書き保存しました');
-    } catch (err) {
-      console.error('上書き保存失敗:', err);
-      showToast('上書き保存に失敗しました。再試行するかダウンロードを実行してください', 'error');
-    }
-  } else {
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: 'DESIGN.md',
-          types: [{
-            description: 'Markdown File',
-            accept: { 'text/markdown': ['.md'] }
-          }]
-        });
-
-        state.fileHandle = handle;
-        const writable = await handle.createWritable();
-        await writable.write(content);
-        await writable.close();
-
-        const file = await handle.getFile();
-        lastFileModifiedTime = file.lastModified;
-
-        document.getElementById('file-status').textContent = handle.name;
-        updateSaveActionUi();
-        showToast('ファイルを新規保存しました');
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.error('新規保存失敗:', err);
-          showToast('ファイルの保存に失敗しました', 'error');
-        }
-      }
-    } else {
-      downloadDocument();
-    }
-  }
 }
 
 async function saveDesignAs() {
@@ -5588,7 +5486,6 @@ async function saveDesignAs() {
     url.searchParams.set('preview', result.preview);
     history.replaceState(null, '', url);
     await writeCurrentWorkspaceInfo();
-    updateSaveActionUi();
     showToast(`${result.folder}へDESIGN.mdとPREVIEW.mdを保存しました`);
   } catch (err) {
     console.error('別名保存失敗:', err);
@@ -5784,7 +5681,6 @@ async function loadDesignFileFromPath(path) {
     state.rawContent = text;
     syncCodeToVisualForm(true);
     document.getElementById('file-status').textContent = `${path} (URL読み込み・自動更新)`;
-    updateSaveActionUi();
 
     const url = new URL(window.location.href);
     url.searchParams.set('md', path);
@@ -5815,7 +5711,6 @@ async function loadPreviewFileFromPath(path, options = {}) {
     if (sTextarea) sTextarea.value = text;
     renderArticleSample(state.parsedYaml);
     schedulePreviewSave();
-    updateSaveActionUi();
 
     const url = new URL(window.location.href);
     url.searchParams.set('preview', path);
@@ -6025,7 +5920,6 @@ function init() {
   // Note: #btn-open-file's click handler is wired in setupFilePopovers()
   // (opens the DESIGN.md quick-pick popover, falling back to openLocalFile()
   // when GET /__list is unavailable, e.g. under npx serve).
-  document.getElementById('btn-save-file').addEventListener('click', saveLocalFile);
   const btnSaveAsFile = document.getElementById('btn-save-as-file');
   if (btnSaveAsFile) btnSaveAsFile.addEventListener('click', saveDesignAs);
   document.getElementById('btn-download').addEventListener('click', downloadDocument);
@@ -6119,7 +6013,6 @@ function init() {
   // フォルダ接続モード: ヘッダのボタン・トグルの配線、および起動時の
   // サイレント再接続（権限がgranted済みなら無音、prompt扱いなら再接続ボタン表示）。
   setupFolderConnectUi();
-  updateSaveActionUi();
 
   initApp();
 }
@@ -6252,7 +6145,6 @@ async function initFromUrlParams() {
       showToast('PREVIEW.mdがないため、標準プレビューを使用します');
     }
   }
-  updateSaveActionUi();
   await writeCurrentWorkspaceInfo();
 }
 
