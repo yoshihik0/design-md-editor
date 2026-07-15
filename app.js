@@ -5418,16 +5418,38 @@ async function instantiateTemplatePair() {
   return state.templateInstantiationPromise;
 }
 
+async function suggestNextWorkspaceFolderName(name) {
+  const cleaned = String(name || 'New-Design').replace(/-copy$/i, '').trim() || 'New-Design';
+  const numbered = cleaned.match(/^(.*)-(\d{3,})$/);
+  const baseName = numbered ? numbered[1] : cleaned;
+  const currentNumber = numbered ? Number(numbered[2]) : 0;
+  let highestNumber = currentNumber;
+
+  const files = await fetchFileList('design');
+  if (Array.isArray(files)) {
+    const escapedBase = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`^design/${escapedBase}-(\\d{3,})/DESIGN\\.md$`, 'i');
+    files.forEach(path => {
+      const match = String(path).match(pattern);
+      if (match) highestNumber = Math.max(highestNumber, Number(match[1]));
+    });
+  }
+
+  return `${baseName}-${String(highestNumber + 1).padStart(3, '0')}`;
+}
+
 async function saveDesignAs() {
-  const currentFolder = state.currentDesignPath.match(/^design\/([^/]+)\/DESIGN\.md$/i)?.[1] || 'New-Design';
-  let suggested = `${currentFolder}-copy`;
+  const currentFolder = state.currentDesignPath.match(/^design\/([^/]+)\/DESIGN\.md$/i)?.[1];
+  const templateFolder = state.currentDesignPath.match(/^design\/templates\/([^/]+)\/DESIGN\.md$/i)?.[1];
+  let suggestionBase = currentFolder || templateFolder || 'New-Design';
   if (state.externalImportSourceName) {
     const fileStem = state.externalImportSourceName.replace(/\.(?:md|markdown|txt)$/i, '');
     const designName = String(state.parsedYaml?.title || '').trim();
     const baseName = /^design$/i.test(fileStem) && designName ? designName : fileStem;
     const safeBaseName = String(baseName || 'Imported-Design').replace(/[\\/]/g, '-').trim() || 'Imported-Design';
-    suggested = `${safeBaseName}-001`;
+    suggestionBase = safeBaseName;
   }
+  const suggested = await suggestNextWorkspaceFolderName(suggestionBase);
   let folderName = window.prompt('新しい作業フォルダ名を入力してください（DESIGN.mdとPREVIEW.mdをセットで保存します）', suggested);
   if (!folderName) return;
   folderName = folderName.trim();
