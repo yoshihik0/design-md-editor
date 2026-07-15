@@ -4537,7 +4537,7 @@ function isFontFamilyAvailable(fontFamily) {
 function refreshTypographyFontWarning(container, styles) {
   const warning = container.querySelector('[data-typography-font-warning]');
   if (!warning) return;
-  const families = Array.from(new Set(Object.values(styles).map(style => style && style.font).filter(Boolean)));
+  const families = Array.from(new Set(Object.values(styles).map(style => style && (style.fontFamily || style.font)).filter(Boolean)));
   const unavailable = families.filter(family => !isFontFamilyAvailable(family));
   warning.classList.toggle('hidden', unavailable.length === 0);
   warning.textContent = unavailable.length
@@ -4572,12 +4572,14 @@ function renderTypographyShowcase(yamlData, containerEl, previewText, mode='defa
 
   const renderRows = selectedRows => selectedRows.map(({ tag, key }) => {
     const st = styles[key];
-    const fontFamily = st.font || '-';
+    const fontFamily = st.fontFamily || st.font || '-';
+    const fontSize = Number.parseFloat(st.size !== undefined ? st.size : st.fontSize);
+    const fontWeight = st.weight !== undefined ? st.weight : st.fontWeight;
     const letterSpacing = st.letterSpacing || '-';
     return `
       <div class="type-showcase-row">
-        <${tag} class="type-showcase-sample" style="font-family:var(--ts-${slugifyKey(key)}-font,var(--font-body));font-size:${Number(st.size)||16}px;font-weight:var(--ts-${slugifyKey(key)}-weight);line-height:var(--ts-${slugifyKey(key)}-line-height);letter-spacing:var(--ts-${slugifyKey(key)}-letter-spacing,normal);color:var(--ts-${slugifyKey(key)}-color);">${escapeHtml(displayText)}</${tag}>
-        <span class="type-showcase-meta">${escapeHtml(key)} / ${escapeHtml(fontFamily)} / ${st.size || '-'}px / ${st.weight || '-'} / line-height ${st.lineHeight || '-'} / letter-spacing ${escapeHtml(letterSpacing)}</span>
+        <${tag} class="type-showcase-sample" style="font-family:${escapeHtml(fontFamily)};font-size:${Number.isFinite(fontSize)?fontSize:16}px;font-weight:${escapeHtml(String(fontWeight!==undefined?fontWeight:400))};line-height:${escapeHtml(String(st.lineHeight!==undefined?st.lineHeight:'normal'))};letter-spacing:${escapeHtml(String(st.letterSpacing!==undefined?st.letterSpacing:'normal'))};color:var(--ts-${slugifyKey(key)}-color);">${escapeHtml(displayText)}</${tag}>
+        <span class="type-showcase-meta">${escapeHtml(key)} / ${escapeHtml(fontFamily)} / ${Number.isFinite(fontSize)?fontSize:'-'}px / ${fontWeight!==undefined?escapeHtml(String(fontWeight)):'-'} / line-height ${st.lineHeight || '-'} / letter-spacing ${escapeHtml(letterSpacing)}</span>
       </div>
     `;
   }).join('');
