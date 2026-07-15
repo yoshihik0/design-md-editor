@@ -55,7 +55,7 @@ const openComponentKeys = new Set();
 
 const PREVIEW_STORAGE_KEY = 'design_md_preview_document';
 const DEFAULT_PREVIEW_PATH = 'defaults/PREVIEW.md';
-const MINIMAL_DEFAULT_PREVIEW_MARKDOWN = '# デザイン適用サンプル\n\n[colors:group]\n\n[typography:group:"デザインの一貫性で素敵なユーザー体験"]\n\n[markdown:"デザインの一貫性で素敵なユーザー体験"]\n\n[border:surface:ink]\n\n[rounded:surface:ink]\n\n[shadow:surface:ink]\n\n[spacing]\n\n[components]\n';
+const MINIMAL_DEFAULT_PREVIEW_MARKDOWN = '# デザイン適用サンプル\n\n[colors:group]\n\n[typography:group:"DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験"]\n\n[markdown:"DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験"]\n\n[border:surface:ink]\n\n[rounded:surface:ink]\n\n[shadow:surface:ink]\n\n[spacing]\n\n[components]\n';
 let defaultPreviewMarkdownCache = '';
 let previewSaveDebounceTimer = null;
 
@@ -3875,7 +3875,7 @@ function resolveComponentToken(yamlData, value) {
 }
 
 function parseSampleArgs(raw){return String(raw||'').split(':').map(value=>value.trim().replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/,(_,double,single)=>double!==undefined?double:single));}
-function parseTypographySampleSpec(raw){const match=String(raw||'').trim().match(/^(group|default)?(?::["']([\s\S]*)["'])?$/i);return {mode:(match&&match[1]?match[1].toLowerCase():'default'),text:(match&&match[2])||'デザインの一貫性で素敵なユーザー体験'};}
+function parseTypographySampleSpec(raw){const match=String(raw||'').trim().match(/^(group|default)?(?::["']([\s\S]*)["'])?$/i);return {mode:(match&&match[1]?match[1].toLowerCase():'default'),text:(match&&match[2])||'DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験'};}
 function buildUndefinedPreview(label){return `<p class="ts-caption sample-definition-missing">${escapeHtml(label)}：未定義</p>`;}
 function sampleColor(yamlData,key,fallback){const colors=yamlData.colors||{},raw=String(key||'');if(colors[key]!==undefined)return colors[key];if(/^(?:#|rgba?\(|hsla?\(|var\(|color\()/i.test(raw))return raw;if(raw.startsWith('on-'))return '#ffffff';if(key==='body')return colors.ink||fallback;return fallback;}
 function sampleTokenBoxBackground(yamlData,key){const value=sampleColor(yamlData,key,'');return !value||/^#fff(?:fff)?$/i.test(value)||/^rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)$/i.test(value)?'#dddddd':value;}
@@ -4506,7 +4506,7 @@ function renderRadiusShowcaseStrip(yamlData, containerEl, spec='') {
 
 function renderBorderPreview(yamlData,containerEl,spec=''){const borders=yamlData.border||{},colors=yamlData.colors||{},order=['none','sm','md','lg','xl'],keys=order.filter(k=>borders[k]!==undefined).concat(Object.keys(borders).filter(k=>!order.includes(k)));if(!keys.length){containerEl.innerHTML=buildUndefinedPreview('border');return;}const [background='surface',foreground='ink']=parseSampleArgs(spec),bg=sampleTokenBoxBackground(yamlData,background),fg=sampleColor(yamlData,foreground,'#111'),lineColor=colors.hairline||colors.ink||colors['ink-muted']||colors['ink-mute']||'#666666';containerEl.innerHTML=`<div class="border-token-grid">${keys.map(key=>`<div class="border-token-item"><div class="token-visual-box" style="border:${escapeHtml(String(borders[key]))};border-color:${escapeHtml(lineColor)};background-color:${escapeHtml(bg)};color:${escapeHtml(fg)}">${escapeHtml(key)}</div><span>${escapeHtml(key)} / ${escapeHtml(String(borders[key]))}</span></div>`).join('')}</div>`;}
 
-function buildMarkdownAssignmentPreviewHtml(yamlData,previewText='デザインの一貫性で素敵なユーザー体験') {
+function buildMarkdownAssignmentPreviewHtml(yamlData,previewText='DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験') {
   const typography=yamlData.typography||{},styles=getTypographyStyles(typography);
   const assignments=typography.markdown||{};
   if(!Object.keys(assignments).length)return buildUndefinedPreview('markdown');

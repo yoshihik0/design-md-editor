@@ -18,13 +18,13 @@
 
 [definition:typography]
 
-[typography:group:"デザインの一貫性で素敵なユーザー体験"]
+[typography:group:"DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験"]
 
 <!-- [typography] または [typography:default] に変更すると、グループ分けせずに表示できます。 -->
 
 ### Markdown
 
-[markdown:"デザインの一貫性で素敵なユーザー体験"]
+[markdown:"DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験"]
 
 ## Border
 
