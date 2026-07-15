@@ -4516,6 +4516,35 @@ function buildMarkdownAssignmentPreviewHtml(yamlData,previewText='デザイン�
 
 function renderSpacingPreview(yamlData,containerEl){const spacing=yamlData.spacing||{},entries=Object.entries(spacing).filter(([key])=>key!=='none'),color=(yamlData.colors||{}).primary||'#2563eb';if(!entries.length){containerEl.innerHTML=buildUndefinedPreview('spacing');return;}containerEl.innerHTML=`<div class="spacing-preview-list">${entries.map(([key,value])=>`<div><code>${escapeHtml(key)}</code><span class="spacing-preview-boxes" style="gap:${Math.max(0,Number(value)||0)}px">${'<i></i>'.repeat(4)}</span><strong>${escapeHtml(String(value))}px</strong></div>`).join('')}</div>`;containerEl.style.setProperty('--spacing-preview-color',color);}
 
+function isFontFamilyAvailable(fontFamily) {
+  const primaryFamily = String(fontFamily || '').split(',')[0].replace(/^['"]|['"]$/g, '').trim();
+  if (!primaryFamily) return true;
+  const alwaysAvailable = new Set(['system-ui', '-apple-system', 'blinkmacsystemfont', 'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy']);
+  if (alwaysAvailable.has(primaryFamily.toLowerCase())) return true;
+
+  const canvas = isFontFamilyAvailable.canvas || (isFontFamilyAvailable.canvas = document.createElement('canvas'));
+  const context = canvas.getContext('2d');
+  if (!context) return true;
+  const sample = 'mmmmmmmmmmlliWW0123456789';
+  return ['monospace', 'serif', 'sans-serif'].some(fallback => {
+    context.font = `72px ${fallback}`;
+    const fallbackWidth = context.measureText(sample).width;
+    context.font = `72px "${primaryFamily.replace(/"/g, '\\"')}", ${fallback}`;
+    return Math.abs(context.measureText(sample).width - fallbackWidth) > 0.1;
+  });
+}
+
+function refreshTypographyFontWarning(container, styles) {
+  const warning = container.querySelector('[data-typography-font-warning]');
+  if (!warning) return;
+  const families = Array.from(new Set(Object.values(styles).map(style => style && style.font).filter(Boolean)));
+  const unavailable = families.filter(family => !isFontFamilyAvailable(family));
+  warning.classList.toggle('hidden', unavailable.length === 0);
+  warning.textContent = unavailable.length
+    ? `指定フォントは読み込まれていません。（${unavailable.join('、')}）`
+    : '';
+}
+
 function renderTypographyShowcase(yamlData, containerEl, previewText, mode='default') {
   const container = containerEl || document.getElementById('typography-showcase-list');
   if (!container) return;
@@ -4552,10 +4581,13 @@ function renderTypographyShowcase(yamlData, containerEl, previewText, mode='defa
       </div>
     `;
   }).join('');
+  const warningHtml='<p class="ts-caption sample-definition-missing hidden" data-typography-font-warning></p>';
   if(mode==='group'){
     const meta=reconcileTypographyGroupsMeta(state.typographyGroupsMeta||[],styles);
-    container.innerHTML=meta.filter(group=>group.keys.length).map(group=>`<section class="typography-sample-group"><h4>${escapeHtml(group.name===null?'未分類':group.name)}</h4>${renderRows(group.keys.filter(key=>styles[key]).map(key=>({tag:'p',key})))}</section>`).join('');
-  }else container.innerHTML=renderRows(rows);
+    container.innerHTML=warningHtml+meta.filter(group=>group.keys.length).map(group=>`<section class="typography-sample-group"><h4>${escapeHtml(group.name===null?'未分類':group.name)}</h4>${renderRows(group.keys.filter(key=>styles[key]).map(key=>({tag:'p',key})))}</section>`).join('');
+  }else container.innerHTML=warningHtml+renderRows(rows);
+  refreshTypographyFontWarning(container,styles);
+  if(document.fonts&&document.fonts.status==='loading')document.fonts.ready.then(()=>{if(container.isConnected)refreshTypographyFontWarning(container,styles);});
 }
 
 // ============================================================================
@@ -5424,17 +5456,21 @@ async function suggestNextWorkspaceFolderName(name) {
   const baseName = numbered ? numbered[1] : cleaned;
   const currentNumber = numbered ? Number(numbered[2]) : 0;
   let highestNumber = currentNumber;
+  let exactFolderExists = false;
 
   const files = await fetchFileList('design');
   if (Array.isArray(files)) {
     const escapedBase = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const exactPattern = new RegExp(`^design/${escapedBase}/DESIGN\\.md$`, 'i');
     const pattern = new RegExp(`^design/${escapedBase}-(\\d{3,})/DESIGN\\.md$`, 'i');
     files.forEach(path => {
+      if (exactPattern.test(String(path))) exactFolderExists = true;
       const match = String(path).match(pattern);
       if (match) highestNumber = Math.max(highestNumber, Number(match[1]));
     });
   }
 
+  if (!numbered && !exactFolderExists && highestNumber === 0) return baseName;
   return `${baseName}-${String(highestNumber + 1).padStart(3, '0')}`;
 }
 
