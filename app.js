@@ -4517,10 +4517,19 @@ function buildMarkdownAssignmentPreviewHtml(yamlData,previewText='DESIGN System 
 function renderSpacingPreview(yamlData,containerEl){const spacing=yamlData.spacing||{},entries=Object.entries(spacing).filter(([key])=>key!=='none'),color=(yamlData.colors||{}).primary||'#2563eb';if(!entries.length){containerEl.innerHTML=buildUndefinedPreview('spacing');return;}containerEl.innerHTML=`<div class="spacing-preview-list">${entries.map(([key,value])=>`<div><code>${escapeHtml(key)}</code><span class="spacing-preview-boxes" style="gap:${Math.max(0,Number(value)||0)}px">${'<i></i>'.repeat(4)}</span><strong>${escapeHtml(String(value))}px</strong></div>`).join('')}</div>`;containerEl.style.setProperty('--spacing-preview-color',color);}
 
 function isFontFamilyAvailable(fontFamily) {
-  const primaryFamily = String(fontFamily || '').split(',')[0].replace(/^['"]|['"]$/g, '').trim();
+  const stack = String(fontFamily || '');
+  const families = stack.split(',').map(value => value.replace(/^\s*['"]|['"]\s*$/g, '').trim()).filter(Boolean);
+  const primaryFamily = families[0] || '';
   if (!primaryFamily) return true;
   const alwaysAvailable = new Set(['system-ui', '-apple-system', 'blinkmacsystemfont', 'sans-serif', 'serif', 'monospace', 'cursive', 'fantasy']);
   if (alwaysAvailable.has(primaryFamily.toLowerCase())) return true;
+
+  // Browsers on Apple platforms do not always expose SF Pro as an enumerable
+  // local family, even though -apple-system resolves to the correct SF face.
+  const platform = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || '').toLowerCase();
+  const isApplePlatform = /mac|iphone|ipad|ipod/.test(platform);
+  const hasAppleSystemAlias = families.some(family => family.toLowerCase() === '-apple-system');
+  if (isApplePlatform && hasAppleSystemAlias && /^sf pro(?: display| text)?$/i.test(primaryFamily)) return true;
 
   const canvas = isFontFamilyAvailable.canvas || (isFontFamilyAvailable.canvas = document.createElement('canvas'));
   const context = canvas.getContext('2d');
