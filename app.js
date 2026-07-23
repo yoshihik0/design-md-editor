@@ -121,6 +121,20 @@ let autoSaveDesignTimer = null;
 let autoSavePreviewTimer = null;
 let isComposingCode = false;
 let isComposingPreview = false;
+
+// DESIGN.md and PREVIEW.md move through history as a pair. UI inputs are
+// coalesced while focused, while nearby external edits count as one operation.
+const DOCUMENT_HISTORY_LIMIT = 10;
+const EXTERNAL_HISTORY_COALESCE_MS = 2000;
+const documentHistory = {
+  undoStack: [],
+  redoStack: [],
+  restoring: false,
+  lastTransaction: null
+};
+const historyInputIds = new WeakMap();
+let nextHistoryInputId = 1;
+
 // IndexedDB-backed directory handle persistence
 const DIR_HANDLE_DB_NAME = 'dmd-editor';
 const DIR_HANDLE_DB_VERSION = 1;
@@ -153,6 +167,132 @@ function showToast(message, type = 'success') {
   toast.timer = setTimeout(() => {
     toast.classList.add('hidden');
   }, 3000);
+}
+
+function captureDocumentSnapshot() {
+  const designTextarea = document.getElementById('code-textarea');
+  return {
+    design: designTextarea ? designTextarea.value : (state.rawContent || ''),
+    preview: state.previewMarkdown || ''
+  };
+}
+
+function documentSnapshotsEqual(a, b) {
+  return !!a && !!b && a.design === b.design && a.preview === b.preview;
+}
+
+function updateDocumentHistoryButtons() {
+  const undoButton = document.getElementById('btn-undo');
+  const redoButton = document.getElementById('btn-redo');
+  if (undoButton) undoButton.disabled = documentHistory.undoStack.length === 0;
+  if (redoButton) redoButton.disabled = documentHistory.redoStack.length === 0;
+}
+
+function resetDocumentHistory() {
+  documentHistory.undoStack = [];
+  documentHistory.redoStack = [];
+  documentHistory.lastTransaction = null;
+  updateDocumentHistoryButtons();
+}
+
+function getUiHistoryCoalesceKey() {
+  const element = document.activeElement;
+  if (!element || !element.matches('input, textarea, select')) return null;
+  if (element.id === 'code-textarea' || element.id === 'preview-textarea') return null;
+  if (!historyInputIds.has(element)) historyInputIds.set(element, nextHistoryInputId++);
+  return `ui-input:${historyInputIds.get(element)}`;
+}
+
+function recordDocumentHistory(snapshot, source = 'ui', coalesceKey = null) {
+  if (documentHistory.restoring || !snapshot) return;
+
+  const now = Date.now();
+  const last = documentHistory.lastTransaction;
+  const coalescedUiInput = source === 'ui'
+    && coalesceKey
+    && last
+    && last.source === source
+    && last.coalesceKey === coalesceKey;
+  const coalescedExternalEdit = source === 'external'
+    && last
+    && last.source === source
+    && now - last.at <= EXTERNAL_HISTORY_COALESCE_MS;
+
+  documentHistory.redoStack = [];
+  if (!coalescedUiInput && !coalescedExternalEdit) {
+    const previous = documentHistory.undoStack[documentHistory.undoStack.length - 1];
+    if (!documentSnapshotsEqual(previous, snapshot)) {
+      documentHistory.undoStack.push(snapshot);
+      if (documentHistory.undoStack.length > DOCUMENT_HISTORY_LIMIT) {
+        documentHistory.undoStack.shift();
+      }
+    }
+  }
+
+  documentHistory.lastTransaction = { source, coalesceKey, at: now };
+  updateDocumentHistoryButtons();
+}
+
+function clearPendingDocumentSaves() {
+  if (autoSaveDesignTimer) {
+    clearTimeout(autoSaveDesignTimer);
+    autoSaveDesignTimer = null;
+  }
+  if (autoSavePreviewTimer) {
+    clearTimeout(autoSavePreviewTimer);
+    autoSavePreviewTimer = null;
+  }
+}
+
+function applyDocumentSnapshot(snapshot) {
+  if (!snapshot) return;
+  clearPendingDocumentSaves();
+  documentHistory.restoring = true;
+  try {
+    const designTextarea = document.getElementById('code-textarea');
+    const previewTextarea = document.getElementById('preview-textarea');
+    if (designTextarea) designTextarea.value = snapshot.design;
+    state.rawContent = snapshot.design;
+    state.previewMarkdown = snapshot.preview;
+    if (previewTextarea) previewTextarea.value = snapshot.preview;
+    syncCodeToVisualForm(true);
+    renderArticleSample(state.parsedYaml);
+    schedulePreviewSave();
+  } finally {
+    documentHistory.restoring = false;
+  }
+  documentHistory.lastTransaction = null;
+  scheduleAutoSaveDesign();
+  scheduleAutoSavePreview();
+  updateDocumentHistoryButtons();
+}
+
+function undoDocumentChange() {
+  const snapshot = documentHistory.undoStack.pop();
+  if (!snapshot) return;
+  const current = captureDocumentSnapshot();
+  if (!documentSnapshotsEqual(current, snapshot)) {
+    documentHistory.redoStack.push(current);
+    if (documentHistory.redoStack.length > DOCUMENT_HISTORY_LIMIT) {
+      documentHistory.redoStack.shift();
+    }
+  }
+  applyDocumentSnapshot(snapshot);
+  showToast('変更を元に戻しました');
+}
+
+function redoDocumentChange() {
+  const snapshot = documentHistory.redoStack.pop();
+  if (!snapshot) return;
+  const current = captureDocumentSnapshot();
+  if (!documentSnapshotsEqual(current, snapshot)) {
+    documentHistory.undoStack.push(current);
+    if (documentHistory.undoStack.length > DOCUMENT_HISTORY_LIMIT) {
+      documentHistory.undoStack.shift();
+    }
+  }
+  applyDocumentSnapshot(snapshot);
+  showToast('変更をやり直しました');
 }
 
 function clearTemplateSaveMode() {
@@ -199,6 +339,7 @@ async function importExternalDesignText(text, sourceName) {
     autoSaveDesignTimer = null;
   }
   clearTemplateSaveMode();
+  resetDocumentHistory();
   state.externalImportSourceName = sourceName || 'DESIGN.md';
   state.fileHandle = null;
   state.urlMdPath = null;
@@ -1373,6 +1514,7 @@ async function loadTemplate(template) {
     ]);
     if (!designRes.ok || !previewRes.ok) throw new Error('テンプレートのペアを読み込めません');
     const [designText, previewText] = await Promise.all([designRes.text(), previewRes.text()]);
+    resetDocumentHistory();
     state.activeTemplate = template.id;
     state.externalImportSourceName = null;
     state.templateSaveBaseName = template.id;
@@ -1601,9 +1743,17 @@ function buildDocument() {
     const markdown = state.markdownBody.trim();
     const fullContent = `---\n${yamlStr}\n---\n\n${markdown}`;
 
+    const textarea = document.getElementById('code-textarea');
+    const previousContent = textarea.value;
+    if (previousContent !== fullContent) {
+      recordDocumentHistory(
+        { design: previousContent, preview: state.previewMarkdown || '' },
+        'ui',
+        getUiHistoryCoalesceKey()
+      );
+    }
     state.rawContent = fullContent;
 
-    const textarea = document.getElementById('code-textarea');
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const scrollTop = textarea.scrollTop;
@@ -1878,7 +2028,7 @@ function extractWebFontStylesheetUrl(embed) {
 
 function getPreviewWebFontEmbeds(){const map={};const regex=/<!--\s*webfont\s*\nfamily:\s*([^\n]+)\nembed:\s*([\s\S]*?)\n-->/gi;let match;while((match=regex.exec(state.previewMarkdown||'')))map[match[1].trim()]=match[2].trim();return map;}
 function getPreviewWebFontEmbed(family){return getPreviewWebFontEmbeds()[String(family||'').trim()]||'';}
-function updatePreviewWebFontEmbed(family,embed){const name=String(family||'').trim();if(!name)return;const nextEmbed=String(embed||'').trim();if(getPreviewWebFontEmbed(name)===nextEmbed)return;const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const regex=new RegExp(`\\n?<!--\\s*webfont\\s*\\nfamily:\\s*${escaped}\\nembed:\\s*[\\s\\S]*?\\n-->`,'i');const block=nextEmbed?`<!-- webfont\nfamily: ${name}\nembed: ${nextEmbed}\n-->`:'';let markdown=state.previewMarkdown||'';markdown=regex.test(markdown)?markdown.replace(regex,block):(block?`${markdown.trimEnd()}\n\n${block}\n`:markdown);state.previewMarkdown=markdown.replace(/\n{3,}$/,'\n\n');const textarea=document.getElementById('preview-textarea');if(textarea&&textarea.value!==state.previewMarkdown)textarea.value=state.previewMarkdown;schedulePreviewSave();scheduleAutoSavePreview();renderArticleSample(state.parsedYaml);}
+function updatePreviewWebFontEmbed(family,embed){const name=String(family||'').trim();if(!name)return;const nextEmbed=String(embed||'').trim();if(getPreviewWebFontEmbed(name)===nextEmbed)return;recordDocumentHistory(captureDocumentSnapshot(),'ui',getUiHistoryCoalesceKey());const escaped=name.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');const regex=new RegExp(`\\n?<!--\\s*webfont\\s*\\nfamily:\\s*${escaped}\\nembed:\\s*[\\s\\S]*?\\n-->`,'i');const block=nextEmbed?`<!-- webfont\nfamily: ${name}\nembed: ${nextEmbed}\n-->`:'';let markdown=state.previewMarkdown||'';markdown=regex.test(markdown)?markdown.replace(regex,block):(block?`${markdown.trimEnd()}\n\n${block}\n`:markdown);state.previewMarkdown=markdown.replace(/\n{3,}$/,'\n\n');const textarea=document.getElementById('preview-textarea');if(textarea&&textarea.value!==state.previewMarkdown)textarea.value=state.previewMarkdown;schedulePreviewSave();scheduleAutoSavePreview();renderArticleSample(state.parsedYaml);}
 
 function syncOtherWebFonts(styles) {
   const previewEmbeds=getPreviewWebFontEmbeds();const urls=new Set();Object.values(styles||{}).forEach(st=>{if(st&&st.source==='other'){const url=extractWebFontStylesheetUrl(previewEmbeds[st.font]||st.embed);if(url)urls.add(url);}});
@@ -1897,6 +2047,9 @@ function generateVisualForm(yamlData, forceRebuild = false) {
     return;
   }
 
+  const openSectionIds = new Set(
+    Array.from(container.querySelectorAll('.accordion-section.active')).map(section => section.id)
+  );
   container.innerHTML = '';
 
   const sections = [
@@ -1910,7 +2063,7 @@ function generateVisualForm(yamlData, forceRebuild = false) {
   ];
 
   sections.forEach((sec, idx) => {
-    const activeClass = '';
+    const activeClass = openSectionIds.has(sec.id) ? 'active' : '';
 
     const sectionEl = document.createElement('div');
     sectionEl.className = `accordion-section ${activeClass}`;
@@ -5119,6 +5272,7 @@ async function tryRestoreDirectoryHandleOnStartup() {
 // buildFileResolutionCandidates() in order until one resolves.
 async function resolveInitialFilesFromDirectory() {
   if (!state.directoryHandle) return;
+  resetDocumentHistory();
   const params = new URLSearchParams(window.location.search);
   const mdCandidates = buildFileResolutionCandidates(params.get('md'), 'design');
   const previewCandidates = buildFileResolutionCandidates(params.get('preview'), 'preview');
@@ -5806,6 +5960,7 @@ async function pickDesignFileByPath(path) {
     designLoaded = await loadDesignFileFromPath(path);
   }
   if (!designLoaded) return;
+  resetDocumentHistory();
 
   let previewLoaded = false;
   if (/\/DESIGN\.md$/i.test(path)) {
@@ -5852,6 +6007,7 @@ function init() {
 
   const textarea = document.getElementById('code-textarea');
   textarea.addEventListener('input', () => {
+    resetDocumentHistory();
     syncCodeToVisualForm(false);
     if (!isComposingCode) scheduleAutoSaveDesign();
   });
@@ -5993,6 +6149,28 @@ function init() {
   if (btnSaveAsFile) btnSaveAsFile.addEventListener('click', saveDesignAs);
   document.getElementById('btn-download').addEventListener('click', downloadDocument);
 
+  const undoButton = document.getElementById('btn-undo');
+  const redoButton = document.getElementById('btn-redo');
+  if (undoButton) undoButton.addEventListener('click', undoDocumentChange);
+  if (redoButton) redoButton.addEventListener('click', redoDocumentChange);
+  document.addEventListener('focusout', () => {
+    if (documentHistory.lastTransaction && documentHistory.lastTransaction.source === 'ui') {
+      documentHistory.lastTransaction = null;
+    }
+  });
+  document.addEventListener('keydown', (event) => {
+    if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
+    const target = event.target;
+    if (target && (target.id === 'code-textarea' || target.id === 'preview-textarea')) return;
+    const key = event.key.toLowerCase();
+    const wantsRedo = (key === 'z' && event.shiftKey) || (key === 'y' && !event.shiftKey);
+    const wantsUndo = key === 'z' && !event.shiftKey;
+    if (!wantsUndo && !wantsRedo) return;
+    event.preventDefault();
+    if (wantsRedo) redoDocumentChange();
+    else undoDocumentChange();
+  });
+
   document.getElementById('btn-copy-code').addEventListener('click', () => {
     navigator.clipboard.writeText(textarea.value)
       .then(() => showToast('全ソースコードをクリップボードにコピーしました'))
@@ -6062,6 +6240,7 @@ function init() {
   const previewTextarea = document.getElementById('preview-textarea');
   if (previewTextarea) {
     previewTextarea.addEventListener('input', (e) => {
+      resetDocumentHistory();
       state.previewMarkdown = e.target.value;
       renderArticleSample(state.parsedYaml);
       schedulePreviewSave();
@@ -6234,6 +6413,7 @@ async function pollUrlLoadedFiles() {
             // 内容は既に一致している（自分の保存分など）。トースト・リロードは不要
             urlMdLastText = text;
           } else {
+            recordDocumentHistory(captureDocumentSnapshot(), 'external');
             urlMdLastText = text;
             textarea.value = text;
             syncCodeToVisualForm(true);
@@ -6262,6 +6442,7 @@ async function pollUrlLoadedFiles() {
             // 内容は既に一致している。トースト・リロードは不要
             urlPreviewLastText = text;
           } else {
+            recordDocumentHistory(captureDocumentSnapshot(), 'external');
             urlPreviewLastText = text;
             state.previewMarkdown = text;
             const sTextarea = document.getElementById('preview-textarea');
@@ -6296,6 +6477,7 @@ function startFileWatcher() {
           const text = await file.text();
 
           if (text !== document.getElementById('code-textarea').value) {
+            recordDocumentHistory(captureDocumentSnapshot(), 'external');
             document.getElementById('code-textarea').value = text;
             syncCodeToVisualForm(true);
             showToast('外部でのファイル変更を検知し、自動リロードしました');
@@ -6316,6 +6498,7 @@ function startFileWatcher() {
           lastPreviewModifiedTime = file.lastModified;
           const text = await file.text();
           if (text !== state.previewMarkdown) {
+            recordDocumentHistory(captureDocumentSnapshot(), 'external');
             state.previewMarkdown = text;
             const textarea = document.getElementById('preview-textarea');
             if (textarea) textarea.value = text;
