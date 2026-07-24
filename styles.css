@@ -123,6 +123,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .logo-badge {
@@ -3318,6 +3319,93 @@ h4.theme-font-title { font-size: 1.1rem; }
 .modal-body {
   padding: 20px;
   overflow-y: auto;
+}
+
+.folder-connect-dialog {
+  width: 500px;
+}
+
+.folder-connect-content {
+  color: var(--editor-text);
+  line-height: 1.7;
+}
+
+.folder-connect-note,
+.folder-connect-unsupported {
+  margin-top: 12px;
+  color: var(--editor-text-secondary);
+  font-size: 0.8rem;
+}
+
+.folder-connect-unsupported {
+  text-align: center;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.user-guide-dialog {
+  width: 760px;
+}
+
+.user-guide-content {
+  color: var(--editor-text);
+  line-height: 1.75;
+}
+
+.user-guide-content h1 {
+  margin: 0 0 20px;
+  font-size: 1.6rem;
+}
+
+.user-guide-content h2 {
+  margin: 28px 0 10px;
+  font-size: 1.15rem;
+}
+
+.user-guide-content h3 {
+  margin: 20px 0 8px;
+  font-size: 1rem;
+}
+
+.user-guide-content p,
+.user-guide-content ul,
+.user-guide-content ol {
+  margin: 0 0 12px;
+}
+
+.user-guide-content ul,
+.user-guide-content ol {
+  padding-left: 1.5rem;
+}
+
+.user-guide-content code {
+  padding: 2px 5px;
+  border: 1px solid var(--editor-border);
+  border-radius: 4px;
+  background: var(--editor-bg);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.user-guide-content pre {
+  margin: 12px 0 18px;
+  padding: 14px;
+  overflow-x: auto;
+  border: 1px solid var(--editor-border);
+  border-radius: 8px;
+  background: var(--editor-bg);
+}
+
+.user-guide-content pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 /* Contrast warning icon inline in token color inputs */

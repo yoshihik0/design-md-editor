@@ -1,16 +1,19 @@
 # AGENTS.md — AIエージェント向け作業ガイド
 
-このプロジェクトは「D.md」（DESIGN.mdエディタ）であり、AIと人間が対話しながらデザイントークンとプレビューを編集する作業場でもある。
+この「D.md」（DESIGN.mdエディタ）というプロジェクトは、AIと人間が対話しながらデザイントークンとそのプレビューの仕方を編集し、デザインシステムを作り上げていく作業場である。
 
 ## 基本ワークフロー
 
-- 起動を依頼されたら、ユーザーにコマンド実行を求めず、まず`./start.sh`を実行する。Node.jsがあれば`server.mjs`、なければ`server.py`が自動選択される。
-- `start.command`はmacOSでユーザーがAIを使わずにダブルクリック起動するためのもの。Windowsでは`start.bat`を使う。
-- ユーザーはローカルサーバーでエディタを開き、同じ作業フォルダの`DESIGN.md`と`PREVIEW.md`を使用する。
+- AIがDESIGN.mdやPREVIEW.mdを編集するためだけにローカルサーバーを起動しない。作業開始時に`.dmd/current.json`を読み、対象ファイルを直接編集する。
+- ユーザーがD.mdを「開いて」「起動して」と依頼した場合は、方式の指定がなくても`./start.sh`を実行してローカルサーバー版を開く。Node.jsがあれば`server.mjs`、なければ`server.py`が自動選択される。
+- ユーザーが「直接起動」「サーバーなしで開く」と明示した場合は`index.html`を直接開く。直接起動ではユーザーが「フォルダを接続」からプロジェクトルートを選ぶ。
+- `start.command`はmacOSでローカルサーバー版をダブルクリック起動するためのもの。Windowsでは`start.bat`を使う。
+- 直接起動版とローカルサーバー版は同じ`index.html`、DESIGN.md、PREVIEW.mdを使用する。
 - エディタは外部変更を1秒間隔で監視する。AIがファイルを保存すればプレビューへ自動反映される。
 - ブラウザも1秒デバウンスで自動保存するため、編集直前に必ず最新内容を読み直し、古い内容で全文上書きしない。
 - 対象の作業フォルダが不明な場合は確認する。更新時刻だけで推測しない。
-- 作業開始時に`.dmd/current.json`を読み、現在編集中の`design`と`preview`のパスを確認する。
+- `.dmd/current.json`の`editorMode`はブラウザの接続方式を示す情報であり、`folder`の場合はサーバーを起動しない。`editorMode`の有無にかかわらず、AIによるファイル編集自体にサーバーは不要。
+- ユーザーが参考、比較、既存サイト、既存デザインへ言及した場合は`references/`を確認し、明示された資料または依頼に関係する資料を判断材料として使う。無関係な作業で全資料を読み込まず、ユーザーの明示がない限り`references/`内は変更しない。
 
 ## ファイル構成
 
@@ -19,7 +22,12 @@
 - `design/templates/<テンプレート名>/DESIGN.md` / `PREVIEW.md` — ペアテンプレート。直接編集しない
 - `defaults/PREVIEW.md` — PREVIEW.mdを伴わない外部DESIGN.md用の標準プレビュー。テンプレート一覧には表示しない
 - `docs/PREVIEW-MANUAL.md` — PREVIEW.md記法の簡易マニュアル
+- `docs/USER-GUIDE.md` — 人向けガイドの原本。`README.md`と内蔵ガイドはここから生成する
+- `README.md` — `docs/USER-GUIDE.md`と同一内容の生成コピー。直接編集しない
+- `references/` — 既存サイトなどのDESIGN.mdを置く参考資料フォルダ。ユーザーが明示しない限り内容を変更しない
 - `index.html` / `app.js` / `styles.css` — エディタ本体
+- `embedded-resources.js` — 直接起動用に標準プレビュー、マニュアル、テンプレートを内蔵した生成ファイル
+- `scripts/build-embedded-resources.mjs` — READMEと内蔵リソースの再生成スクリプト
 - `start.sh` / `start.command` / `start.bat` — Node/Pythonを自動選択する起動スクリプト
 - `server.mjs` / `server.py` — 同等機能を持つNode/Pythonローカルサーバー
 - `history/` — 旧仕様・作業履歴。現行仕様として参照しない
@@ -30,7 +38,7 @@
 
 「その他のファイルを選択」やドラッグ＆ドロップで開いたDESIGN.mdは、元ファイルを変更しない外部インポートとして扱う。PREVIEW.mdには`defaults/PREVIEW.md`を適用し、編集結果は「別名で保存」で`design/<作業名>/`へDESIGN.mdとPREVIEW.mdのペアとして保存する。
 
-## DESIGN.mdスキーマ（現行v3）
+## DESIGN.mdスキーマ（現行v3.0）
 
 ```yaml
 ---

@@ -20,7 +20,9 @@ const state = {
   // フォルダ接続モード: 接続中の directory handle と表示名
   directoryHandle: null,
   directoryName: null,
+  pendingDirectoryHandle: null,
   serverWorkspaceName: null,
+  editorMode: window.location.protocol === 'file:' ? 'direct' : 'unknown',
   // プレビュー用の「現在選択中のテーマ」。UIのみの状態で、YAML/rawContentには
   // 一切書き込まない。null = 既定(ライト)。
   activeDesignTheme: null,
@@ -35,6 +37,7 @@ const state = {
   templateInstantiationPromise: null,
   previewHelpMode: false,
   previewHelpMarkdown: '',
+  userGuideMarkdown: '',
   currentDesignPath: '',
   currentPreviewPath: '',
   externalImportSourceName: null,
@@ -58,6 +61,57 @@ const DEFAULT_PREVIEW_PATH = 'defaults/PREVIEW.md';
 const MINIMAL_DEFAULT_PREVIEW_MARKDOWN = '# デザイン適用サンプル\n\n[colors:group]\n\n[typography:group:"DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験"]\n\n[markdown:"DESIGN System 2026 — 一貫性でつくる素敵なユーザー体験"]\n\n[border:surface:ink]\n\n[rounded:surface:ink]\n\n[shadow:surface:ink]\n\n[spacing]\n\n[components]\n';
 let defaultPreviewMarkdownCache = '';
 let previewSaveDebounceTimer = null;
+
+function getEmbeddedResources() {
+  return window.__DMD_EMBEDDED__ && typeof window.__DMD_EMBEDDED__ === 'object'
+    ? window.__DMD_EMBEDDED__
+    : null;
+}
+
+function getEmbeddedTemplateByPath(resourcePath) {
+  const resources = getEmbeddedResources();
+  if (!resources || !Array.isArray(resources.templates)) return null;
+  return resources.templates.find(template =>
+    template.design === resourcePath || template.preview === resourcePath
+  ) || null;
+}
+
+async function readBundledText(resourcePath) {
+  const resources = getEmbeddedResources();
+  if (resources) {
+    if (resourcePath === DEFAULT_PREVIEW_PATH && typeof resources.defaultPreview === 'string') {
+      return resources.defaultPreview;
+    }
+    if (resourcePath === 'docs/PREVIEW-MANUAL.md' && typeof resources.previewManual === 'string') {
+      return resources.previewManual;
+    }
+    if (resourcePath === 'docs/USER-GUIDE.md' && typeof resources.userGuide === 'string') {
+      return resources.userGuide;
+    }
+    const template = getEmbeddedTemplateByPath(resourcePath);
+    if (template) {
+      if (template.design === resourcePath && typeof template.designText === 'string') {
+        return template.designText;
+      }
+      if (template.preview === resourcePath && typeof template.previewText === 'string') {
+        return template.previewText;
+      }
+    }
+  }
+
+  const response = await fetch(resourcePath, { cache: 'no-store' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}
+
+async function listBundledTemplates() {
+  const resources = getEmbeddedResources();
+  if (resources && Array.isArray(resources.templates)) return resources.templates;
+  const response = await fetch('/__templates', { cache: 'no-store' });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  return Array.isArray(data.templates) ? data.templates : [];
+}
 
 // プレビューテーマ選択の永続化キー（YAMLには保存しない、表示専用の選択状態）
 const PREVIEW_THEME_STORAGE_KEY = 'design_md_preview_theme';
@@ -305,9 +359,7 @@ function clearTemplateSaveMode() {
 async function getDefaultPreviewMarkdown() {
   if (defaultPreviewMarkdownCache) return defaultPreviewMarkdownCache;
   try {
-    const response = await fetch(DEFAULT_PREVIEW_PATH, { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    defaultPreviewMarkdownCache = await response.text();
+    defaultPreviewMarkdownCache = await readBundledText(DEFAULT_PREVIEW_PATH);
   } catch (err) {
     console.warn('標準PREVIEW.mdの読み込みに失敗しました:', err);
     defaultPreviewMarkdownCache = MINIMAL_DEFAULT_PREVIEW_MARKDOWN;
@@ -518,7 +570,7 @@ function getTypographyStyles(typography) {
 // Typography grouping mirrors colors (current schema): full-line comments
 // among the style keys DIRECTLY under `typography:` (2-space indent) are the
 // group dividers; the reserved keys (markdown/scale/fonts) are never group
-// members. Back-compat read: old v3.0 files that nested styles inside a
+// members. Back-compat read: legacy files that nested styles inside a
 // `styles:` sub-block get their group comments read from there (4-space
 // indent) — those styles are hoisted to direct children by normalizeV3, so
 // the recovered group meta lines up with the migrated keys.
@@ -1363,8 +1415,8 @@ function normalizeV3(yamlData) {
   // (`markdown` / `scale` are reserved keys), each style carrying `font` =
   // family name string (+ optional `source`). Three input shapes are accepted
   // and folded into that canonical form:
-  //   a) canonical v3.1:  typography.<k>.font = "Outfit"（直下＋font直書き）
-  //   b) fonts-ref (v2/v3.0): typography.fonts + (typography.styles|直下).<k>.font = "heading"
+  //   a) canonical v3.0: typography.<k>.font = "Outfit"（直下＋font直書き）
+  //   b) legacy fonts-ref: typography.fonts + (typography.styles|直下).<k>.font = "heading"
   //   c) interim (deprecated editor output): direct children with
   //      `family` / `weights` fields
   // `family`/`weights` are never emitted again (weights for the Google Fonts
@@ -1392,7 +1444,7 @@ function normalizeV3(yamlData) {
       const ref = style.font.trim();
       // A fonts-key reference only counts as such while a fonts map is in
       // play (explicit fonts section, or the built-in heading/body defaults
-      // for pre-v3.1 style sets). Otherwise `font` is already a family name.
+      // for legacy fonts-ref style sets). Otherwise `font` is already a family name.
       const fontDef = legacyFonts[ref];
       if (fontDef && (hasExplicitFonts || ref === 'heading' || ref === 'body')) {
         family = fontDef.family || 'Outfit';
@@ -1508,12 +1560,10 @@ function ensureV3(yamlData) {
 async function loadTemplate(template) {
   if (!template || !template.design) return;
   try {
-    const [designRes, previewRes] = await Promise.all([
-      fetch(template.design, { cache: 'no-store' }),
-      fetch(template.preview, { cache: 'no-store' })
+    const [designText, previewText] = await Promise.all([
+      readBundledText(template.design),
+      readBundledText(template.preview)
     ]);
-    if (!designRes.ok || !previewRes.ok) throw new Error('テンプレートのペアを読み込めません');
-    const [designText, previewText] = await Promise.all([designRes.text(), previewRes.text()]);
     resetDocumentHistory();
     state.activeTemplate = template.id;
     state.externalImportSourceName = null;
@@ -1545,10 +1595,7 @@ async function loadTemplateList() {
   const container = document.getElementById('templates-container');
   if (!container) return;
   try {
-    const res = await fetch('/__templates', { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    const templates = Array.isArray(data.templates) ? data.templates : [];
+    const templates = await listBundledTemplates();
     container.innerHTML = templates.length ? templates.map(template => `
       <button type="button" class="template-card" data-template-id="${escapeHtml(template.id)}">
         <span class="template-info"><strong>${escapeHtml(template.name)}</strong><span>${escapeHtml(template.description || '')}</span></span>
@@ -1557,7 +1604,7 @@ async function loadTemplateList() {
       card.addEventListener('click', () => loadTemplate(templates.find(item => item.id === card.dataset.templateId)));
     });
   } catch (err) {
-    container.innerHTML = '<p class="templates-intro">テンプレート一覧を取得できません。node server.mjsで起動してください。</p>';
+    container.innerHTML = '<p class="templates-intro">テンプレート一覧を取得できません。</p>';
   }
 }
 
@@ -4588,9 +4635,7 @@ async function togglePreviewHelp() {
   state.previewHelpMode = !state.previewHelpMode;
   if (state.previewHelpMode && !state.previewHelpMarkdown) {
     try {
-      const response = await fetch('docs/PREVIEW-MANUAL.md', { cache: 'no-store' });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      state.previewHelpMarkdown = await response.text();
+      state.previewHelpMarkdown = await readBundledText('docs/PREVIEW-MANUAL.md');
     } catch (err) {
       state.previewHelpMarkdown = '# preview.help\n\nヘルプを読み込めませんでした。';
     }
@@ -4602,6 +4647,22 @@ async function togglePreviewHelp() {
     if (label) label.textContent = state.previewHelpMode ? 'プレビュー' : 'preview.help';
   }
   renderArticleSample(state.parsedYaml);
+  if (window.lucide) lucide.createIcons();
+}
+
+async function openUserGuide() {
+  const modal = document.getElementById('user-guide-modal');
+  const content = document.getElementById('user-guide-content');
+  if (!modal || !content) return;
+  modal.classList.remove('hidden');
+  if (!state.userGuideMarkdown) {
+    try {
+      state.userGuideMarkdown = await readBundledText('docs/USER-GUIDE.md');
+    } catch (err) {
+      state.userGuideMarkdown = '# D.md 3.0の使い方\n\n使い方を読み込めませんでした。';
+    }
+  }
+  content.innerHTML = marked.parse(state.userGuideMarkdown);
   if (window.lucide) lucide.createIcons();
 }
 
@@ -5012,16 +5073,55 @@ function updateFolderConnectUi() {
   }
 }
 
+function updateDirectFolderPrompt() {
+  const modal = document.getElementById('folder-connect-modal');
+  const title = document.getElementById('folder-connect-title');
+  const description = document.getElementById('folder-connect-description');
+  const button = document.getElementById('btn-folder-connect-primary');
+  const chooseAnotherButton = document.getElementById('btn-folder-choose-another');
+  if (!modal) return;
+
+  const shouldShow = state.editorMode === 'direct' && !state.directoryHandle;
+  modal.classList.toggle('hidden', !shouldShow);
+  if (!shouldShow) return;
+
+  const previous = state.pendingDirectoryHandle;
+  if (previous) {
+    if (title) title.textContent = '前回の作業フォルダに再接続';
+    if (description) {
+      description.textContent = `「${previous.name}」へのアクセスを許可すると、前回の続きから作業できます。`;
+    }
+    if (button) button.innerHTML = '<i data-lucide="folder-sync"></i><span>前回のフォルダに再接続</span>';
+    if (chooseAnotherButton) chooseAnotherButton.classList.remove('hidden');
+  } else {
+    if (title) title.textContent = '作業フォルダを選択';
+    if (description) {
+      description.textContent = 'D.mdがDESIGN.mdとPREVIEW.mdを読み書きできるように、index.htmlが入っているプロジェクトフォルダを選択してください。';
+    }
+    if (button) button.innerHTML = '<i data-lucide="folder-open"></i><span>フォルダを選択</span>';
+    if (chooseAnotherButton) chooseAnotherButton.classList.add('hidden');
+  }
+  if (button) button.disabled = !window.showDirectoryPicker;
+  if (window.lucide) lucide.createIcons();
+}
+
 async function detectServerWorkspace() {
+  const fallbackMode = window.location.protocol === 'file:' ? 'direct' : 'static';
   try {
     const response = await fetch('/__workspace', { cache: 'no-store' });
-    if (!response.ok) return false;
+    if (!response.ok) {
+      state.serverWorkspaceName = null;
+      state.editorMode = fallbackMode;
+      return false;
+    }
     const data = await response.json();
     state.serverWorkspaceName = data.name || 'project';
+    state.editorMode = 'server';
     updateFolderConnectUi();
     return true;
   } catch (err) {
     state.serverWorkspaceName = null;
+    state.editorMode = fallbackMode;
     return false;
   }
 }
@@ -5146,7 +5246,8 @@ async function writeCurrentWorkspaceInfo() {
   const preview = state.currentPreviewPath;
   if (!design || !preview) return;
   const folder = design.includes('/') ? design.slice(0, design.lastIndexOf('/')) : '.';
-  const payload = { folder, design, preview };
+  const editorMode = state.directoryHandle ? 'folder' : state.editorMode;
+  const payload = { folder, design, preview, editorMode };
   try {
     if (state.directoryHandle) {
       const dmdDir = await state.directoryHandle.getDirectoryHandle('.dmd', { create: true });
@@ -5191,7 +5292,10 @@ async function listMarkdownFilesFromDirectory(dirHandle, subDir) {
 async function connectFolder(handle) {
   state.directoryHandle = handle;
   state.directoryName = handle.name;
+  state.pendingDirectoryHandle = null;
+  state.editorMode = 'folder';
   updateFolderConnectUi();
+  updateDirectFolderPrompt();
   await idbSaveDirectoryHandle(handle);
   await resolveInitialFilesFromDirectory();
 }
@@ -5199,8 +5303,12 @@ async function connectFolder(handle) {
 async function disconnectFolder() {
   state.directoryHandle = null;
   state.directoryName = null;
+  state.editorMode = state.serverWorkspaceName
+    ? 'server'
+    : (window.location.protocol === 'file:' ? 'direct' : 'static');
   await idbClearDirectoryHandle();
   updateFolderConnectUi();
+  updateDirectFolderPrompt();
   setAutoSaveIndicator('', false);
   showToast('フォルダの接続を解除しました');
 }
@@ -5208,17 +5316,50 @@ async function disconnectFolder() {
 async function pickAndConnectFolder() {
   if (!window.showDirectoryPicker) {
     showToast('このブラウザはフォルダ接続に対応していません（Chrome/Edge推奨）', 'error');
-    return;
+    updateDirectFolderPrompt();
+    return false;
   }
   try {
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const previous = state.pendingDirectoryHandle || await idbLoadDirectoryHandle();
+    const options = { id: 'dmd-workspace-root', mode: 'readwrite' };
+    if (previous) options.startIn = previous;
+    let handle;
+    try {
+      handle = await window.showDirectoryPicker(options);
+    } catch (err) {
+      if (!(err instanceof TypeError) || !options.startIn) throw err;
+      delete options.startIn;
+      handle = await window.showDirectoryPicker(options);
+    }
     await connectFolder(handle);
     showToast(`フォルダ「${handle.name}」に接続しました`);
+    return true;
   } catch (err) {
     if (err.name !== 'AbortError') {
       console.error('フォルダ接続失敗:', err);
       showToast('フォルダの接続に失敗しました', 'error');
     }
+    return false;
+  }
+}
+
+async function reconnectDirectoryHandle(handle) {
+  if (!handle) return pickAndConnectFolder();
+  try {
+    const granted = await handle.requestPermission({ mode: 'readwrite' });
+    if (granted !== 'granted') {
+      showToast('フォルダへのアクセスが許可されませんでした', 'error');
+      updateDirectFolderPrompt();
+      return false;
+    }
+    await connectFolder(handle);
+    showToast(`フォルダ「${handle.name}」に再接続しました`);
+    return true;
+  } catch (err) {
+    console.error('再接続失敗:', err);
+    showToast('再接続に失敗しました', 'error');
+    updateDirectFolderPrompt();
+    return false;
   }
 }
 
@@ -5226,42 +5367,26 @@ async function pickAndConnectFolder() {
 // resumes without prompting. If it's merely 'prompt', surfaces a low-key
 // reconnect button (user gesture required for requestPermission).
 async function tryRestoreDirectoryHandleOnStartup() {
+  if (state.editorMode === 'server') return;
   const handle = await idbLoadDirectoryHandle();
   if (!handle) return;
+  state.pendingDirectoryHandle = handle;
   try {
     const perm = await handle.queryPermission({ mode: 'readwrite' });
     if (perm === 'granted') {
-      state.directoryHandle = handle;
-      state.directoryName = handle.name;
-      updateFolderConnectUi();
-      await resolveInitialFilesFromDirectory();
+      await connectFolder(handle);
       showToast(`フォルダ「${handle.name}」に再接続しました`);
     } else if (perm === 'prompt') {
       const reconnectBtn = document.getElementById('btn-reconnect-folder');
       if (reconnectBtn) {
         reconnectBtn.classList.remove('hidden');
-        reconnectBtn.onclick = async () => {
-          try {
-            const granted = await handle.requestPermission({ mode: 'readwrite' });
-            if (granted === 'granted') {
-              reconnectBtn.classList.add('hidden');
-              state.directoryHandle = handle;
-              state.directoryName = handle.name;
-              updateFolderConnectUi();
-              await resolveInitialFilesFromDirectory();
-              showToast(`フォルダ「${handle.name}」に再接続しました`);
-            } else {
-              showToast('フォルダへのアクセスが許可されませんでした', 'error');
-            }
-          } catch (err) {
-            console.error('再接続失敗:', err);
-            showToast('再接続に失敗しました', 'error');
-          }
-        };
+        reconnectBtn.onclick = () => reconnectDirectoryHandle(handle);
       }
+    } else {
+      state.pendingDirectoryHandle = null;
     }
-    // perm === 'denied' の場合は何もしない（サイレントに従来動作へフォールバック）
   } catch (err) {
+    state.pendingDirectoryHandle = null;
     console.warn('保存済みフォルダハンドルの検証に失敗しました:', err);
   }
 }
@@ -5270,13 +5395,41 @@ async function tryRestoreDirectoryHandleOnStartup() {
 // state.fileHandle/previewFileHandle so the existing watcher/autosave/manual-
 // save code paths just work unmodified. Tries each candidate from
 // buildFileResolutionCandidates() in order until one resolves.
+function validWorkspaceRelativePath(value, fileName) {
+  const normalized = String(value || '').replace(/\\/g, '/');
+  if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) return '';
+  return normalized.toLowerCase().endsWith(`/${fileName.toLowerCase()}`) ? normalized : '';
+}
+
+async function readCurrentWorkspaceInfoFromDirectory() {
+  if (!state.directoryHandle) return null;
+  try {
+    const dmdDir = await state.directoryHandle.getDirectoryHandle('.dmd', { create: false });
+    const handle = await dmdDir.getFileHandle('current.json', { create: false });
+    const parsed = JSON.parse(await (await handle.getFile()).text());
+    const design = validWorkspaceRelativePath(parsed.design, 'DESIGN.md');
+    const preview = validWorkspaceRelativePath(parsed.preview, 'PREVIEW.md');
+    return design && preview ? { design, preview } : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 async function resolveInitialFilesFromDirectory() {
   if (!state.directoryHandle) return;
   resetDocumentHistory();
   const params = new URLSearchParams(window.location.search);
   const mdCandidates = buildFileResolutionCandidates(params.get('md'), 'design');
   const previewCandidates = buildFileResolutionCandidates(params.get('preview'), 'preview');
+  if (mdCandidates.length === 0 && previewCandidates.length === 0) {
+    const current = await readCurrentWorkspaceInfoFromDirectory();
+    if (current) {
+      mdCandidates.push(current.design);
+      previewCandidates.push(current.preview);
+    }
+  }
 
+  let designLoaded = false;
   for (const mdPath of mdCandidates) {
     try {
       const handle = await resolveFileHandleInDirectory(state.directoryHandle, mdPath, { create: false });
@@ -5292,6 +5445,7 @@ async function resolveInitialFilesFromDirectory() {
         document.getElementById('code-textarea').value = text;
         document.getElementById('file-status').textContent = `${mdPath} (フォルダ接続)`;
         syncCodeToVisualForm(true);
+        designLoaded = true;
         break;
       }
     } catch (err) {
@@ -5303,6 +5457,7 @@ async function resolveInitialFilesFromDirectory() {
     previewCandidates.push(state.currentDesignPath.replace(/\/DESIGN\.md$/i, '/PREVIEW.md'));
   }
 
+  let previewLoaded = false;
   for (const previewPath of previewCandidates) {
     try {
       const sHandle = await resolveFileHandleInDirectory(state.directoryHandle, previewPath, { create: false });
@@ -5317,13 +5472,15 @@ async function resolveInitialFilesFromDirectory() {
         const sTextarea = document.getElementById('preview-textarea');
         if (sTextarea) sTextarea.value = text;
         renderArticleSample(state.parsedYaml);
+        previewLoaded = true;
         break;
       }
     } catch (err) {
       // 指定プレビューがフォルダ内に無ければ次の候補を試す
     }
   }
-  await writeCurrentWorkspaceInfo();
+  if (designLoaded && !previewLoaded) await applyDefaultPreview();
+  if (designLoaded && previewLoaded) await writeCurrentWorkspaceInfo();
 }
 
 // Opens a DESIGN.md-like file by relative path from the connected directory,
@@ -5389,6 +5546,8 @@ function setupFolderConnectUi() {
   const popover = document.getElementById('popover-folder-menu');
   const btnDisconnect = document.getElementById('btn-disconnect-folder');
   const autoSaveToggle = document.getElementById('autosave-toggle');
+  const promptButton = document.getElementById('btn-folder-connect-primary');
+  const chooseAnotherButton = document.getElementById('btn-folder-choose-another');
 
   // 自動保存トグルの初期値（localStorage記憶、デフォルトON）
   try {
@@ -5414,6 +5573,25 @@ function setupFolderConnectUi() {
       } else {
         pickAndConnectFolder();
       }
+    });
+  }
+
+  if (promptButton) {
+    promptButton.addEventListener('click', async () => {
+      if (state.pendingDirectoryHandle) {
+        await reconnectDirectoryHandle(state.pendingDirectoryHandle);
+      } else {
+        await pickAndConnectFolder();
+      }
+    });
+  }
+  if (chooseAnotherButton) {
+    chooseAnotherButton.addEventListener('click', async () => {
+      const previous = state.pendingDirectoryHandle;
+      state.pendingDirectoryHandle = null;
+      const connected = await pickAndConnectFolder();
+      if (!connected) state.pendingDirectoryHandle = previous;
+      updateDirectFolderPrompt();
     });
   }
 
@@ -6091,6 +6269,9 @@ function init() {
   const exportModal = document.getElementById('export-modal');
   const btnOpenExport = document.getElementById('btn-open-export');
   const btnCloseExport = document.getElementById('btn-close-export');
+  const userGuideModal = document.getElementById('user-guide-modal');
+  const btnOpenUserGuide = document.getElementById('btn-open-user-guide');
+  const btnCloseUserGuide = document.getElementById('btn-close-user-guide');
 
   if (btnOpenExport) {
     btnOpenExport.addEventListener('click', () => {
@@ -6109,9 +6290,21 @@ function init() {
       if (e.target === exportModal) exportModal.classList.add('hidden');
     });
   }
+  if (btnOpenUserGuide) btnOpenUserGuide.addEventListener('click', openUserGuide);
+  if (btnCloseUserGuide) {
+    btnCloseUserGuide.addEventListener('click', () => userGuideModal.classList.add('hidden'));
+  }
+  if (userGuideModal) {
+    userGuideModal.addEventListener('click', (e) => {
+      if (e.target === userGuideModal) userGuideModal.classList.add('hidden');
+    });
+  }
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && exportModal && !exportModal.classList.contains('hidden')) {
       exportModal.classList.add('hidden');
+    }
+    if (e.key === 'Escape' && userGuideModal && !userGuideModal.classList.contains('hidden')) {
+      userGuideModal.classList.add('hidden');
     }
   });
 
@@ -6261,6 +6454,7 @@ function init() {
   // フォルダ接続モード: ヘッダのボタン・トグルの配線、および起動時の
   // サイレント再接続（権限がgranted済みなら無音、prompt扱いなら再接続ボタン表示）。
   setupFolderConnectUi();
+  if (state.editorMode === 'direct') updateDirectFolderPrompt();
 
   initApp();
 }
@@ -6279,6 +6473,7 @@ async function initApp() {
   // ガード（!state.fileHandle / !state.previewFileHandle）で二重読み込みを防ぐ。
   await initFromUrlParams();
 
+  updateDirectFolderPrompt();
   startFileWatcher();
 }
 

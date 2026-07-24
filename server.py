@@ -130,6 +130,7 @@ def write_current(info):
         "folder": str(info.get("folder") or str(Path(design).parent).replace("\\", "/")),
         "design": design,
         "preview": preview,
+        "editorMode": "server",
         "updatedAt": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     write_atomic(ROOT / ".dmd" / "current.json", json.dumps(payload, ensure_ascii=False, indent=2) + "\n")

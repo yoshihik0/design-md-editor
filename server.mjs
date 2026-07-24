@@ -129,6 +129,7 @@ async function writeCurrentWorkspace(info) {
     folder: String(info.folder || path.posix.dirname(design)),
     design,
     preview,
+    editorMode: 'server',
     updatedAt: new Date().toISOString()
   };
   await fs.writeFile(path.join(dir, 'current.json'), `${JSON.stringify(payload, null, 2)}\n`, 'utf8');

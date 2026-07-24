@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>D.md — DESIGN.md Editor</title>
+  <title>D.md 3.0 — DESIGN.md Editor</title>
   <!-- Google Fonts: Outfit for UI, Fira Code for code editor -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -75,6 +75,9 @@
           <i data-lucide="code"></i>
           <span>エクスポート</span>
         </button>
+        <button id="btn-open-user-guide" class="btn-icon" type="button" title="D.md 3.0の使い方" aria-label="D.md 3.0の使い方">
+          <i data-lucide="book-open"></i>
+        </button>
         <div class="divider"></div>
         <button id="btn-undo" class="btn-icon" type="button" title="元に戻す (⌘/Ctrl+Z)" aria-label="元に戻す" disabled>
           <i data-lucide="undo-2"></i>
@@ -130,7 +133,7 @@
               <h3>AIアシスト</h3>
               <div class="assistant-section">
                 <h4><i data-lucide="folder-code"></i><span>ローカルAIと共創する</span></h4>
-                <p class="section-desc">Codex、Claude Code、Antigravityなどでこのプロジェクトフォルダを開き、ローカルサーバーを起動すると、AIと対話しながらDESIGN.mdを編集することができます。</p>
+                <p class="section-desc">Codex、Claude Code、Antigravityなどでこのプロジェクトフォルダを開くと、AIと対話しながらDESIGN.mdを編集できます。index.htmlを直接開く場合は「フォルダを接続」、従来方式ではstartコマンドを利用します。</p>
                 <p class="section-desc">以下のような方法で、DESIGN.mdを作成していくことができます。</p>
                 <ul class="section-desc assistant-guide-list">
                   <li>AIに雰囲気を伝えてDESIGN.mdを生成してもらい、対話的に修正していく。</li>
@@ -177,7 +180,7 @@
             </div>
           </div>
         </div>
-        <div class="sidebar-credit">D.md by <a href="https://yoshihiko.com" target="_blank" rel="noopener">yoshihiko.com</a></div>
+        <div class="sidebar-credit">D.md 3.0 by <a href="https://yoshihiko.com" target="_blank" rel="noopener">yoshihiko.com</a></div>
       </aside>
 
       <!-- 2. Center Panel: Preview Canvas (page-like sample rendered in theme colors) -->
@@ -260,6 +263,45 @@
     </main>
   </div>
 
+  <!-- Direct Launch Folder Prompt -->
+  <div id="folder-connect-modal" class="modal-overlay hidden">
+    <div class="modal-dialog folder-connect-dialog" role="dialog" aria-modal="true" aria-labelledby="folder-connect-title">
+      <header class="modal-header">
+        <h3><i data-lucide="folder-cog"></i><span id="folder-connect-title">作業フォルダを選択</span></h3>
+      </header>
+      <div class="modal-body folder-connect-content">
+        <p id="folder-connect-description">D.mdがDESIGN.mdとPREVIEW.mdを読み書きできるように、index.htmlが入っているプロジェクトフォルダを選択してください。</p>
+        <p class="folder-connect-note">サーバーなしの直接起動では、ブラウザの安全機能により最初にフォルダへのアクセス許可が必要です。ファイルが外部へ送信されることはありません。</p>
+        <div class="modal-actions">
+          <button id="btn-folder-connect-primary" class="btn btn-primary" type="button">
+            <i data-lucide="folder-open"></i>
+            <span>フォルダを選択</span>
+          </button>
+          <button id="btn-folder-choose-another" class="btn btn-secondary hidden" type="button">
+            <i data-lucide="folder-search"></i>
+            <span>別のフォルダを選ぶ</span>
+          </button>
+        </div>
+        <p class="folder-connect-unsupported">ボタンを押せない場合はChromeまたはEdgeで開くか、start.command / start.batでサーバー版を起動してください。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- User Guide Modal -->
+  <div id="user-guide-modal" class="modal-overlay hidden">
+    <div class="modal-dialog user-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="user-guide-title">
+      <header class="modal-header">
+        <h3><i data-lucide="book-open"></i><span id="user-guide-title">D.md 3.0の使い方</span></h3>
+        <button id="btn-close-user-guide" class="btn-icon" type="button" title="閉じる" aria-label="使い方を閉じる">
+          <i data-lucide="x"></i>
+        </button>
+      </header>
+      <div class="modal-body user-guide-content" id="user-guide-content">
+        <p>使い方を読み込んでいます…</p>
+      </div>
+    </div>
+  </div>
+
   <!-- Export Modal -->
   <div id="export-modal" class="modal-overlay hidden">
     <div class="modal-dialog">
@@ -310,6 +352,9 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/js-yaml/4.1.0/js-yaml.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- file:// direct launch cannot fetch Markdown resources, so templates,
+       defaults and the user/preview manuals are bundled as a classic script. -->
+  <script src="embedded-resources.js"></script>
   <!-- Application Main Logic -->
   <script src="app.js"></script>
 </body>
